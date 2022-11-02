@@ -1,0 +1,640 @@
+---
+title: "Statistics Capstone Seminar Final Report"
+author: "Steven, Bo, Jiayi"
+date: "5/23/2022"
+output: 
+    tufte::tufte_html: default
+    tufte::tufte_handout: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(ggthemes)
+library(hrbrthemes)
+library(randomForest)
+library(rattle)
+library(rpart)
+library(caret)
+library(forcats)
+library(sjPlot)
+library(magick)
+library(imager)
+```
+
+# Summary
+In producing this final finding report, we focused on using Y_Real and Pixel_Sum as dependent variables. We believe our ultimate goal is to maximize the values of these dependent variables in each actuator. Therefore, we did analysis against physical variables such as position (Row and Column), piezo batch, and pressure. We evaluated the significance of each variable and created visualizations for reference.
+
+Here are our major findings:
+
+<ul>
+    <li>Piezo Batch 4a gives higher Pixel-Sum and Y_Real value compared to Piezo Batch 3. </li>
+    <li>Testing fluid “20211020.001" gives higher Y_Real compared to "202010820.003".</li>
+    <li>Actuators using different Aperture Batch have different Y_Real distributions. </li>
+    <li>Actuators of pressure level 36 can yield lower Y_Real and Pixel-Sum. </li>
+    <li>Actuators of pressure level other than 35 may yield higher Y_Real depends on situation. </li>
+    <li>Actuators with Visual-Bead-Inspection have higher Y_Real and Pixel-Sum. </li>
+    <li>Actuator's placement (row and column) does not influence Y_Real value. </li>
+    <li>Actuator's Pixel_Sum is not a good measurement compared to Y_Real </li>
+</ul>
+
+```{r load data, include=FALSE}
+# file path relative in project folder
+data <- read.csv("./data/Cleaned_data_04_15.csv")
+```
+
+# Data Processing Summary
+We converted all data sheets in the Actuator folder from the google sheets to CSV files based on different batch names. After loading them into the R studio, we took several steps to clean the dataset. We first dropped those columns with only one distinct value or missing more than 90 percent of data. We further filtered out outliers with unreasonable values and deleted some unnecessary columns such as specific time. Finally, we ended up with 25 key variables and renamed them for better reading purposes.
+
+# Selected Variable Investigation
+
+Here, we present some more detailed investigations of different variables. A note on the figures: the horizontal or vertical dotted red and yellow line on some of the graphs serves as a reference to the performance threshold. All red lines are references to the Y_Real = 0.015, which signals the actuators are meeting expectations. All yellow lines are references to Y_Real = 0.03 and indicate above-expected performance. Any actuators data point placed below or to the left of the red line would be considered underperforming. 
+
+## Histogram and Density Plots
+
+Below, we utilized some density plots to further illustrate our findings. Before interpreting the actual results, here is a quick note on how density plots are produced and their relationship with histograms. 
+
+The density graph is essentially the smoothed version of the histogram. Since the Y_Real data is continuous in nature, the density plot produces an unwrinkled distribution shape compared to traditional histogram graphs. The following comparison illustrates this smoothing process. 
+
+```{r histogram to density plot, echo=FALSE, warning=TRUE}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+
+data %>% 
+    select(FR_Y, Piezo.Batch) %>%
+    na.omit() %>% 
+    ggplot(aes(FR_Y)) +
+    ggtitle("Y_Real Histogram & Density Plot") +
+    xlab("Y_Real") +
+    geom_histogram(binwidth = 0.002) +
+    geom_density(fill = "#00A4CCFF", alpha = 0.7) +
+    theme_economist() +
+    scale_fill_manual(values = color_theme) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank())
+```
+
+The figure above shows the histogram plot (in grey) of all Y_Real values and their corresponding density plot (in blue). The histogram graph shows the shape of the data distribution. Graphically, every individual histogram bar tells how frequently every value in the dataset occurs. For example, we can observe Y_real value 0.019 is the most common value as shown by the tallest histogram bar. The density plot is just a smoothed "twin" of the histogram. It accurately reflected the shape of distribution presented by the histogram and, on top of that, made the trends more obvious. 
+
+## Piezo Batch
+
+
+```{r Y_Real vs. Piezo.Batch, echo=FALSE}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+data %>% 
+    select(FR_Y, Piezo.Batch) %>%
+    na.omit() %>% 
+    mutate(Piezo.Batch = as.factor(Piezo.Batch)) %>% 
+    ggplot(aes(FR_Y, fill = Piezo.Batch)) +
+    ggtitle("Piezo Batch vs. Y_Real") +
+    xlab("Y_Real") +
+    geom_density(alpha=0.85, size=1) + 
+    geom_vline(xintercept = 0.015, linetype="dashed", color="red", size=1) +
+    annotate(geom = "text",
+     label = "Meet Expectation",
+     x = 0.01,
+     y = 0,
+     size = 3,
+     angle = 90,
+     hjust = -0.09,
+     vjust = 2.5) +
+    theme_economist() + 
+    scale_fill_manual(values = color_theme) +
+    theme(text = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, vjust = 2), 
+          legend.position="right") + 
+          guides(fill=guide_legend(title="Piezo Batch")) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank()) +
+    geom_vline(xintercept = 0.03, linetype="dashed", color="orange", size=1) +
+    annotate(geom = "text",
+     label = "Above Expectation",
+     x = 0.03,
+     y = 0,
+     size = 3,
+     angle = 90,
+     hjust = -0.09,
+     vjust = -1)
+```
+
+The first plot shows the distribution of Y_Real values. The distribution is skewed slightly to the right. We can observe that the peaks of the two distribution curves are both around 0.019. However, the distribution of actuators that use piezo batch "4a" concentrates slightly more towards the left than those that use piezo batch "3". 
+
+```{r, echo=FALSE}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+
+data %>% 
+    select(Pixel.Sum, Piezo.Batch) %>%
+    na.omit() %>% 
+    mutate(Piezo.Batch = as.factor(Piezo.Batch)) %>% 
+    ggplot(aes(Pixel.Sum, fill = Piezo.Batch)) +
+    ggtitle("Piezo Batch vs. Pixel Sum") + 
+    geom_density(alpha=0.85, size=1) + 
+    theme_economist() + 
+    scale_fill_manual(values = color_theme) +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5, vjust = 2), 
+          legend.position="right") + 
+          guides(fill=guide_legend(title="Piezo Batch")) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank()) + 
+    xlab(expression(Pixel ~ Sum(10^7)))
+```
+
+The second density plot shows the distribution of Pixel_Sum values in Piezo Batch 3 and 4a. We observe the actuators that use piezo batch "4a" are more concentrated on the higher end of pixel sum. The distribution of actuators using piezo batch "4a" skewed significantly towards the left, associated with significantly better performance, whereas the actuators with piezo batch "3" only centered in the middle. This suggests that Piezo Batch 4a produces bigger bursts compare to Piezo Batch 3. This finding is consistent with the finding of the first plot whose performance is measured by Y_Real.
+
+## Testing Fluid
+Similar to Piezo Batch, the density plot below shows actuators using testing fluid "20211020.001" (in color blue) on average have higher Y_Real value. This testing fluid also leads to more top performance samples. The majority of both testing fluids samples have passed the Y_Real Threshold, but it is clear that a higher portion of "20211020.001" (in color blue) actuators have passed the red indicator line. 
+```{r, echo=FALSE}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+data %>% 
+    select(FR_Y, Testing.Fluid) %>%
+    na.omit() %>% 
+    mutate(Testing.Fluid = as.factor(Testing.Fluid)) %>% 
+    ggplot(aes(FR_Y, fill = Testing.Fluid)) +
+    ggtitle("Testing Fluid vs. Y_Real") +
+    xlab("Y_Real") +
+    geom_density(alpha=0.85, size=1) + 
+    geom_vline(xintercept = 0.015, linetype="dashed", color="red", size=1) +
+    annotate(geom = "text",
+     label = "Meet Expecation",
+     x = 0.015,
+     y = 0,
+     size = 3,
+     angle = 90,
+     hjust = -0.09,
+     vjust = -1) +
+    theme_economist() + 
+    scale_fill_manual(values = color_theme) +
+    theme(text = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, vjust = 2), 
+          legend.position="right") + 
+          guides(fill=guide_legend(title="Testing Fluid")) + 
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank()) + 
+      geom_vline(xintercept = 0.03, linetype="dashed", color="orange", size=1) +
+    annotate(geom = "text",
+     label = "Above Expectation",
+     x = 0.03,
+     y = 0,
+     size = 3,
+     angle = 90,
+     hjust = -0.09,
+     vjust = -1)
+```
+
+## Aperture Batch
+In the case of Aperture Batch, we have three different categories showing that Apperture Batch 3 leads to a slightly larger number of actuators in the higher performance region (Y_Real > 0.04). While we find that aperture batch 3 is on average associated with a higher FR_Y value and better performance, the tail end of the density graph shows that the exceptionally high Y_Real value is more commonly seen in 4a and 4b aperture batch.
+
+```{r, echo=FALSE}
+color_theme <- c("brown", "#F95700FF", "#00A4CCFF") # Mid-blue and Red
+data %>% 
+    select(FR_Y, Apperture.Batch) %>%
+    na.omit() %>% 
+    mutate(aperture.Batch = as.factor(Apperture.Batch)) %>% 
+    ggplot(aes(FR_Y, fill = Apperture.Batch)) +
+    ggtitle("Aperture Batch vs. Y_Real") +
+    xlab("Y_Real") +
+    geom_density(alpha=0.85, size=1) + 
+    geom_vline(xintercept = 0.015, linetype="dashed", color="red", size=1) +
+    annotate(geom = "text", label = "Meet Expectation",
+     x = 0.015,
+     y = 0,
+     size = 3,
+     angle = 90,
+     hjust = -0.1,
+     vjust = -1.1) +
+    theme_economist() + 
+    scale_fill_manual(values = color_theme) +
+    theme(text = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, vjust = 2), 
+          legend.position="right") + 
+          guides(fill=guide_legend(title="Testing Fluid")) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank()) + 
+        geom_vline(xintercept = 0.03, linetype="dashed", color="orange", size=1) +
+    annotate(geom = "text",
+     label = "Above Expectation",
+     x = 0.03,
+     y = 0,
+     size = 3,
+     angle = 90,
+     hjust = -0.09,
+     vjust = -1)
+```
+
+## Pressure
+A few notes on boxplot:
+
+![](boxplot.png)
+
+<i> Figure Citation: datavizcatalogue.com </i>
+
+A Box Plot displays the data distribution through their quartiles, in four groups that equally divide the total samples. The lines extending vertically from the boxes are known as the “whiskers”, which are used to indicate variability outside the upper and lower quartiles. Outliers are plotted as individual dots that are in line with whiskers. 
+
+Though our data are mainly from 35 psi, we compared outcomes from different psi levels. Here is the pressure's boxplot, which displays the dataset based on the minimum, maximum, and median. While each box represents an individual pressure group, it can visualize each group's distribution based on the middle bold line (which is the median) and both upper and lower sides of the box (which are the first and third quartiles).  
+
+From the graph, we see that all other psi levels except 36 are having higher Y_Real than 35 psi. Meanwhile, the result from one-way ANOVA and regression result also indicates that 36 psi seems to decrease the value of Y_Real.
+
+```{r psi & visual, echo=FALSE, warning=FALSE, fig.height=4.4}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+
+data %>% 
+    select(Psi, FR_Y) %>% 
+    na.omit() %>% 
+    mutate(Psi = as.factor(Psi)) %>% 
+    ggplot(aes(x = Psi, y = FR_Y)) +
+    geom_boxplot() + 
+    geom_hline(yintercept = 0.015, linetype="dashed", color="red", size=1) +
+    annotate(geom = "text",
+         label = "Meet Expectation",
+         x = 0.01,
+         y = 0.01,
+         size = 3,
+         angle = 0,
+         hjust = -0.05,
+         vjust = -0.5) +
+    ggtitle("Y_Real vs. Pressure") + 
+    ylab("Y_Real") +
+    theme_economist() + 
+    scale_fill_manual(values = color_theme) +
+    theme(plot.title = element_text(hjust = 0.5, vjust = 2), legend.position="right") + 
+    guides(fill=guide_legend(title="Psi Level")) +
+        geom_hline(yintercept = 0.03, linetype="dashed", color="orange", size=1) +
+    annotate(geom = "text",
+     label = "Above Expectation",
+     x = 0.03,
+     y = 0.002,
+     size = 3,
+     angle = 0,
+     hjust = 0,
+     vjust = -12)
+```
+
+Similarly, here is the box plot for Pixel_Sum versus pressure. While 45 psi is surprisingly bad, we see 37 and 39 psi are producing better results compared to the mostly used 35 psi.  
+
+```{r, echo=FALSE, Warning=FALSE, message=FALSE}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+
+data %>% 
+    select(Psi, Pixel.Sum) %>% 
+    na.omit() %>% 
+    mutate(Psi = as.factor(Psi)) %>% 
+    ggplot(aes(x=Psi, y=Pixel.Sum)) +
+    geom_boxplot() + 
+    ggtitle("Pixel_Sum vs. Pressure") + 
+    ylab("Pixel_Sum") +
+    theme_economist() + 
+    scale_fill_manual(values = color_theme) +
+    theme(plot.title = element_text(hjust = 0.5, vjust = 2), legend.position="right") + 
+    guides(fill=guide_legend(title="Psi Level"))
+
+knitr::kable(
+  data %>% 
+    select(Psi, FR_Y) %>% 
+    na.omit() %>% 
+    mutate(Psi = as.factor(Psi)) %>% 
+    count(Psi) %>% 
+    mutate(Number = n) %>% 
+    select(Psi, Number))
+```
+
+When investigating the psi variable, we need to consider the constraint of the small sample size. The table below the boxplot demonstrates that the majority of the psi analysis comes from psi 35 and there are very little data on psi levels other than 35 psi. We assume that it is the intention of the production is to align the psi value to 35, so the small sample size of the psi value other than 35 does not provide us a conclusive finding that 32, 34, and 37 psi necessarily did significantly better. If possible, getting more data with different psi levels may be helpful for studying psi's relationship with Y_Real and Pixel_Sum.
+
+## Visual Bead Inspection
+```{r, echo=FALSE, fig.height=4.4}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+
+test <- data %>% 
+    filter(Visual.Bead.Inspection == "0" | Visual.Bead.Inspection == "1")
+  
+test %>% 
+    ggplot(aes(FR_Y, fill = Visual.Bead.Inspection)) +
+    geom_density(alpha = 0.85) +
+    geom_vline(xintercept = 0.015, linetype="dashed", color="red", size=1) +
+    annotate(geom = "text",
+         label = "Meet Expectation",
+         x = 0.015,
+         y = 30.5,
+         size = 3,
+         angle = 90,
+         hjust = 2.4,
+         vjust = -1) +
+    ggtitle("Distribution of Y_Real given Visual Inspection") + 
+    ylab("Density") +
+    xlab("Y_Real") +
+    theme_economist() + 
+    scale_fill_manual(values = color_theme) +
+    theme(plot.title = element_text(hjust = 0.75, vjust = 2), legend.position="right") + 
+    guides(fill=guide_legend(title="Visual Inspection")) +
+    theme(axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank()) +
+        geom_vline(xintercept = 0.03, linetype="dashed", color="orange", size=1) +
+    annotate(geom = "text",
+     label = "Above Expectation",
+     x = 0.03,
+     y = 0,
+     size = 3,
+     angle = 90,
+     hjust = -0.09,
+     vjust = -1)
+```
+
+This density curve tells us that actuators with visual bead inspection tend to have a higher probability of having higher values of Y_Real.
+
+## Acturator Position Row & Column
+
+We have sorted the performance values by column and row. The following box plots are produced.
+
+```{r Row vs. Performance, echo=FALSE, warning=FALSE, fig.height=4.4}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+
+# drop Row J
+data_without_j <- data[!(data$Row=="J"),]
+
+data_without_j %>% 
+    select(FR_Y, Row) %>%
+    na.omit() %>% 
+    mutate(Row = as.factor(Row)) %>% 
+    ggplot(aes(x=Row, y=FR_Y)) +
+    geom_boxplot() +
+    geom_hline(yintercept = 0.015, linetype="dashed", color="red", size=1) +
+    annotate(geom = "text",
+         label = "Meet Expectation",
+         x = 1,
+         y = 0.01,
+         size = 3,
+         angle = 0,
+         hjust = 0.7,
+         vjust = -0.5) +
+    ggtitle("Y_Real Value by Row") +
+    theme_economist() + 
+    scale_fill_manual(values=color_theme) +
+    scale_alpha_manual(values=c(1,0.1)) +
+    theme(text = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, vjust = 2), 
+          legend.position="right") + 
+          geom_hline(yintercept = 0.03, linetype="dashed", color="orange", size=1) +
+    annotate(geom = "text",
+     label = "Above Expectation",
+     x = 0.03,
+     y = 0.002,
+     size = 3,
+     angle = 0,
+     hjust = 0,
+     vjust = -12) + 
+    ylab("Y_Real")
+```
+
+
+```{r Column vs. Performance, echo=FALSE, warning=FALSE, fig.height=4.4}
+color_theme <- c("#F95700FF", "#00A4CCFF") # Mid-blue and Red
+
+# drop Row J
+data_without_j <- data[!(data$Row=="J"),]
+
+data_sort_columns <- data_without_j[order(as.numeric(data_without_j$Column)),]
+data_sort_columns %>% 
+    select(FR_Y, Column) %>%
+    na.omit() %>% 
+    mutate(Column = as.factor(Column)) %>% 
+    mutate(Column = forcats::fct_inorder(Column)) %>% 
+    ggplot(aes(x=Column, y=FR_Y)) +
+    geom_boxplot() +
+    geom_hline(yintercept = 0.015, linetype="dashed", color="red", size=1) +
+    annotate(geom = "text",
+             label = "Meet Expectation",
+             x = 1,
+             y = 0.01,
+             size = 2.85,
+             angle = 0,
+             hjust = 0.65,
+             vjust = -0.75) +
+    ggtitle("Y_Real Value by Column") +
+    theme_economist() + 
+    scale_fill_manual(values=color_theme) +
+    scale_alpha_manual(values=c(1,0.1)) +
+    theme(text = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, vjust = 2), 
+          legend.position="right") + 
+    ylab("Y_Real") + 
+  geom_hline(yintercept = 0.03, linetype="dashed", color="orange", size=1) +
+    annotate(geom = "text",
+     label = "Above Expectation",
+     x = 0.03,
+     y = 0.002,
+     size = 2.85,
+     angle = 0,
+     hjust = 0,
+     vjust = -13) + 
+    ylab("Y_Real")
+```
+
+In this box-plot graph, the x-axis refers to the Y_Real value that represents the actuator's performance and the y-axis refers to the row name across all batches. We have discarded Row J due to an insufficient sample size - There are only 10 samples from Row J in our dataset. The two box plots indicate that there is not much performance difference for different actuator placements. 
+
+# Further Algorithm Exploration
+
+In the next part of this report, we aim to use statistical methods to investigate the relationship between the Y_REAL and other variables. We will present three different models: linear regression, decision tree, and random forest. From the most simple to the most complex, our team aims to quantify and explore a more detailed relationship among different variables, based on our observation from the initial findings.
+
+## Linear Regression
+
+We choose to start with this linear regression because it gave us a quick intuition on how each variable uniquely influence the FR_Y value and what is its magnitude. 
+
+A regression model is a statistical method that quantifies the impact of one variable on the other. The model is trying to find a best-fitted line between multiple variables assuming linear relationship. In our project, we aim to estimate the effect of multiple variables on the Y_REAL value. The effect the model is estimating is illustrated as the estimate coefficient in the regression table below. A positive coefficient represents the variable has a positive effect on the Y_REAL value, meaning it is associated with better actuator performance, whereas a negative estimate coefficient means that this variable is associated with bad actuator performance. The greater the estimated coefficient is away from zero, the greater the magnitude of impact. One important thing about running the regression model for our datasets is that most of our variables are categorical. In this case, we intentionally reprogram the level of our data, so that the model will automatically compare the unique variables with the target variables that represent the majority of the sample. This  ensure that the model will estimate the effect of unique variables on Y_REAL as compared to target variables.
+
+```{r reprogram the level of data, echo=FALSE}
+
+levels(data$Row) <-c("RowA","RowB","RowC","RowD","RowE","RowF","RowG","RowH","RowI")
+levels(data$Psi) <-c("35", "32","34","36","37","39","45")
+levels(data$Piezo.Batch) <- c("3", "4a")
+```
+
+When interpreting the regression table, we focus on the second column "estimate" of this regression table which represents the estimated coefficient and magnitude of the variables on the Y_REAL value. We only focus on the results that are statistically significant at 0.01(p<0.001), which represent the results that have strong statistical confidence and the observed differences are extremely rare due to chance. There are three takeaways. First, we see that 1) Piezo batch 4a is associated with the actuator's better performance, which is consistent with our observation in the previous slide. 2) Second, in terms of coefficient magnitude, variable Aperture 4b is associated with the worst performance among all the other variables. 3) Third, it is interesting to notice that all pressures other than 35 are associated with worse actuator performance. While it makes sense that actuators not operated under a standard condition are associated with worse performance, this finding is not consistent with the observation in our initial report. In our initial report, we see a lot of noise: different pressure values are sometimes associated with high and sometimes low FR_Y values, although the regression model suggests that it is probably better to adopt the target 35. We believe that there’s is probably some nuance behind it: not all the pressure other than the target pressure is associated with worse performance. Therefore, we introduce more complex statistical methods in the next step that might inform us of the nuance among multiple variables.
+
+```{r regression model,echo=FALSE ,render = 'normal_print'}
+
+regression <-lm(FR_Y ~ Testing.Fluid + Apperture.Batch + Piezo.Batch  + Feedrate +  factor(Psi) + Row + Column , data = data)
+tab_model(regression, digits = 3)
+
+#tidy(regression)
+
+```
+
+
+## Decision Tree
+
+Here we build up a decision tree from our data. A decision tree is a flowchart that starts with one main group and then branches out based on the consequences of each group's specific attributes. It's called a “decision tree” because the model typically looks like a tree with branches and leafs.
+
+```{r, echo=FALSE}
+home <- data %>% 
+  select(Pixel.Sum, Feedrate, Psi, Piezo.Batch, Apperture.Batch, Tube.Batch, 
+         Testing.Fluid, FR_Y) %>% 
+  na.omit()
+
+home$Psi <- factor(home$Psi)
+home$Testing.Fluid <- factor(home$Testing.Fluid)
+
+home <- home %>% 
+  mutate(Testing.Fluid = case_when(Testing.Fluid == 20211020.001 ~ "2",
+                                   Testing.Fluid == 202010820.003 ~ "1"))
+
+tree1 <- rpart(FR_Y ~ Feedrate + Psi + Piezo.Batch + Apperture.Batch
+               + Tube.Batch + Testing.Fluid,
+               data = home)
+
+fancyRpartPlot(tree1, palettes="Blues")
+```
+
+For brevity, we denoted the Testing Fluid 20211020.001 as 2 and Testing Fluid 202010820.003 as 1. As we mentioned in the presentation, a decision tree can split data according to certain attributes. As the decision tree model illustrates, the model is trying to split our data based on Testing Fluid, Pressure, and Aperture Batch variables, implying those three are the three most important factors. 
+
+Let's interpret this decision tree. In each box, we can see there are three values. The value of n represents the number of samples in that group, and the top number means the average value of Y_Real in those samples. The percentage value indicates the percentage of that group in the overall population. Now, if we start from the top-most box, which is labeled as 1, the value 0.024 means that the average Y_Real value is 0.024 for 954 samples in the whole population. Now the decision tree asks the first question: does the actuator use Testing Fluid 1 or 2? If the actuator used Testing Fluid 1, it will be moved to the left box, while any actuators used Testing Fluid 2 will be moved to the right box. Then we can compare the different average Y_Reals. As 0.027 is greater than 0.02, we conclude that Testing Fluid 2 yields better results compared to Fluid 1. Similarly, we can apply the same strategy to other boxes to investigate the effect of the other two variables (Pressure and Aperture Batch). Therefore, we could infer the following observations: 1. Psi 36 is significantly worse than others; 2. Aperture Batch 3 and 4b are better than 4a. 
+
+In all, we were able to see that the decision tree's results were mainly consistent with previous linear regression results. Both methods show that Testing Fluid, Pressure, and Aperture are the most important variables, except for the Piezo Batch variable. While the linear regression model reported that Piezo Batch was significant, the decision tree model says otherwise. Therefore, to dismiss this uncertainty, we implemented another Random Forest algorithm to evaluate each variable's importance more closely.
+
+
+## Random Forest
+
+Generally speaking, Random Forest is a collection of decision trees. For that reason, a Random forest is typically more accurate than single decision trees because it contains multiple single decision trees based on random sampling. An important feature of Random Forest is that it can quantify each variable's contribution to its model and provide importance scores (and a higher score means such variable is more important) 
+
+```{r, echo=FALSE}
+rf.1 <- randomForest(FR_Y ~ Feedrate + Psi + Piezo.Batch + Apperture.Batch
+                     + Tube.Batch + Testing.Fluid,
+                           data = home,
+                           importance = TRUE)
+
+knitr::kable(varImp(rf.1))
+
+rf.2 <- randomForest(FR_Y ~ Testing.Fluid + Psi + Apperture.Batch,
+                     data = home,
+                     importance = TRUE)
+```
+Here is the table summarizing what the Random Forest model is telling us. As we can see from the table directly, the Pressure and Testing Fluid variables remain significant, as one has a score of 23.5 and the other has 38.8. Both scores are relatively high, implying they might be the determining factors behind the model. Meanwhile, Piezo and Aperture Batch have scores of 17.8 and 19.0, respectively. Those scores are not as high as Pressure's and Testing Fluid's, but they are still the highest among the rest of the variables. Thus, we could infer that Piezo and Aperture Batch variables influence the actuator's performance, but the significance may not be as high as we expected in the linear regression model.
+
+## Pixel_Sum and Y_REAL
+
+In this section, we explore the relationship between the burst images and the performance of actuators. Specifically, since each burst is simply a gray scale image, we can quantitatively represent the quality of the bursts captured in each image. This leads us to engineer the feature Pixel Sum which is the sum of each pixel within each image. Ideally, since value 0 represents complete darkness and value 1 represents complete brightness, a higher pixel sum suggest that there exists a greater white region and hence higher bursts. We will use the Y-Real data and the actuator images in Batch 38 as an example. We first load the local image data. The first actuator image looks like this:
+
+
+```{r explore the relationship between pixel sum and fr_y, echo=FALSE}
+home3 <- data %>% select(Pixel.Sum, Feedrate, Psi, Piezo.Batch, Apperture.Batch, Tube.Batch, 
+            Testing.Fluid, FR_Y, Column, Row, Batch.File) %>% 
+    na.omit()
+setwd("~/dev/OVR")
+# step 1. read in the image
+fpath <- "data/b38-5.png"
+act <- load.image(fpath)
+plot(act)
+```
+We can observe that the powder bursts only concentrated within a certain section of the image. Furthermore, there are white edges on both sides of the image that will obviously mess up our pixel sum calculation. Naturally, we want to crop the image to just the center-right section so that the variation across images is consistent. 
+
+
+```{r crop image, echo=FALSE}
+# step 2. Gray scale
+gray.im <- grayscale(act)
+
+# step 3. crop image
+cp.im <- imsub(gray.im, 1300>x) %>% 
+                imsub(x>600)    %>% 
+                imsub(y<880)    %>% 
+                imsub(y>280)
+plot(cp.im)
+print("Image Dimension:")
+dim(cp.im)
+```
+We can see that after the crop we are able to focus on a specific section of the image where the bursts are concentrated in. The dimension was also reduced to 600*700px, which is nice for the algorithm to process. However, this means that we still need to process 420000 data points for each image. Observe that there is not much local difference between one pixel and its neighbors, so it would be nice if we can resize this image into a more coarse representation. This is exactly what we will do
+
+```{r resize image, echo=FALSE}
+# step 4. resize
+re.im <- cp.im %>% resize(round(width(cp.im)/30),round(height(cp.im)/30))
+plot(re.im)
+print("Image Dimension:")
+dim(re.im)
+```
+Here we obtain a much smaller representation of our original burst image, it is only 23*20px. We can see that we did not lose the original shape of the bursts with this coarse representation. And since there are only 460 data points for each image, we can process each image much faster. So, after all of this data processing work, we can finally convert all of our images into individual pixels and calculate pixel values. We will do this by defining a function and calling it on all image files inside the batch folder. 
+```{r calculate pixel sum, echo=FALSE, message=FALSE}
+# define pixel sum function
+get_pixel_sum <- function(im) {
+    gray.im <- grayscale(im)
+    cp.im <- imsub(gray.im, 1300>x) %>% 
+        imsub(x>600)    %>% 
+        imsub(y<880)    %>% 
+        imsub(y>280)
+    re.im <- cp.im %>% 
+        resize(round(width(cp.im)/30),round(height(cp.im)/30))
+    df <- as.data.frame(re.im)
+    pixel_sum <- sum(df$value)
+    return(pixel_sum)
+}
+
+# iterate through all pictures
+alphabet <- c("A", "B", "C", "D", "E", "F", "G", "H", "I")
+new_pixel <- NULL
+
+for (i in 1:length(alphabet)) {
+    impath <- paste("~/dev/OVR/data/Batch_38/Row_",
+                  alphabet[i],
+                  sep = "")
+    setwd(impath)
+    files <- list.files(path = impath,
+                        pattern = "*.png", full.names = FALSE, recursive = FALSE)
+    images <- lapply(files, load.image) 
+    
+    for (j in 1:length(images)) {
+
+        curr_sum <- get_pixel_sum(images[[j]])
+        
+        #get pixel sum
+        new_pixel <- c(new_pixel, curr_sum)
+    }
+}
+
+new_pixel <- data.frame(new_pixel)
+home3 <- home3 %>% filter(Batch.File == "Batch 38 Data Sheet")
+home3$number <- row.names(home3)
+new_pixel$number <- row.names(new_pixel)
+data3 <- merge(home3, new_pixel, by = "number", all = TRUE)
+data3 <- data3[,c(1,2,13,4,5,6,7,8,9,10,11,12,3)]
+```
+After obtaining the pixel sum calculation for each actuator we can merge it with the master data set and produce correlation calculations and scatter plot. The correlation calculation here indicates what proportion of variation in Y-Real can be explained by variation in Pixel Sum values. 
+```{r correlation, echo=FALSE, message=FALSE}
+cor(data3$Pixel.Sum,data3$new_pixel)
+cor(data3$FR_Y,data3$new_pixel)
+data3 %>% ggplot(aes(new_pixel, FR_Y)) +
+    geom_point() +
+    geom_smooth(method='lm', se=FALSE, color='turquoise4') +
+    theme_minimal() +
+    labs(x='Pixel Sum', y='Y-Real', title='Pixel Sum vs. Y-Real') +
+    theme(plot.title = element_text(hjust=0.5, size=20, face='bold'))
+```
+There are a few takeaways from the correlation calculation. The first sanity check is that our new pixel sum calculation's correlation with the original pixel sum value is 98%. The high correlation value indicates that the variation of the new pixel sum is connected to the original value. Since the original pixel sum aggregate the pixels on the entire image, this means that we did not change the bursts profile of an image. However, this means we also did not arrive at a new quantitative value. The correlation between the new pixel sum and the "Y-Real" value is around 20%. This means that the variation in Pixel Sum only explains 20% of the variation in Y-Real value, which comparatively is a small portion of the change. It is clear from the scatter plot that although we saw an upward trend in the best fit line, we still see different data points scattered around the line with high residuals (errors). There are actuators with high Pixel Sum value yet low Y-Real value, which means below average burst performance. 
+
+This means that either the image data is not a good predictor of the Y-Real value or our pixel sum calculation has some neglected factors. Considering the simplicity of our pixel sum calculation, we believe that we should focus on creating new ways to represent the bursts of the powder or producing a more accurate image from the original bursts recording. The current image is only a snapshot of the bursts' behavior and might not be able to represent the average performance accurately. A better approach for future consideration could be to have several burst images taken at the different time points and aggregate the pixel values to produce an average representation of the performance of the actuator. 
+
+
+# Conclusion 
+
+## Major Findings
+To sum up, we identified some important variables. While Testing Fluid and Pressure are recognized as the most important determining variables, we should not overlook the significance of Peizo and Aperture Batch.  
+
+## Challenge
+Challenge 1): Understand the science behind production and datasets. We find that the organization of datasheets is not consistent, and it takes us a lot of time to comprehend each feature and what they represent in the production process. This is challenging especially when we try to merge across datasets based on their shared features. Because the same feature might have different names in the datasheets, it requires us to fully understand what each feature means in the actuator production. 
+
+Challenge 2): Imbalance dataset. We find that there is little variation across the datasets because most of the actuators are produced/operated under the target and standard conditions. Although our statistical models have found some key variables that are associated with a higher Y_REAL value, and some of them are significant, we suggest gathering more data that include the unique and non-target values, such as doing experiments. In the current data sets, some of the target value (eg. psi 35) contribute a significant majority of the sample. This results in highly imbalanced dataset representing mostly actuators with target pressure value.
+
+## Future Steps
+Future steps 1): Refine pixel sum calculations. While we did not manage to find a better variable that better correlates with the Y_REAL value other than Pixel_Sum, we still find that the correlation between Pixel_Sum and Y_REAL is very low. We believe that Pixel_Sum itself is not a very good predictor of the actuator's performance, nor a good measurement for actuator's performance, because it only explains 20% of the correlation. For the next step, the goal of the project is to calculate the image visual burst with a higher correlation value with the Y_Real value.
+
+Future steps 2): Strengthen the data collection process. We believe it will save us more time if we have a more standard description of all the features in the datasets. Having a data dictionary would be very helpful for future data analysts because it not only will help us understand what each variable represents in the production, but also save time when merging with multiple datasets across batches.
+
+Special thanks to Robb Barclay and Matt Flego at OVR Technology. It is a great pleasure to get to know OVR and its products! Without your guidance and feedback, it is impossible for us to understand your production and complete this project.
+
+Special thanks to our advisor Prof. Alex Lyford, who guided us throughout the semester. It is a great learning opportunity to apply the data science skills we learnt in stats class to real world problem. Thanks for your support throughout!
+
+Middlebury College OVR Statistic Team 
+April 15th, 2022
+
