@@ -1,0 +1,168 @@
+---
+title: "variable_investigation"
+author: "Steven, Bo, Jiayi"
+date: "3/15/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(ggthemes)
+library(hrbrthemes)
+```
+
+Dependent Variable: Pixel.Sum, FR_Y, Difference between Res.Freq & Anti.Res.Freq
+
+```{r load data}
+data <- read.csv("data/Cleaned_data_03_15.csv")
+```
+
+```{r FR_Y vs. Piezo.Batch}
+cols <- c("#F76D5E", "#FFFFBF")
+
+data %>% 
+    select(FR_Y, Piezo.Batch) %>%
+    na.omit() %>% 
+    mutate(Piezo.Batch = as.factor(Piezo.Batch)) %>% 
+    ggplot(aes(FR_Y, fill = Piezo.Batch, colour = Piezo.Batch, alpha = 0.7)) +
+    geom_density() + scale_color_manual(values = cols) +
+  labs(title = "ggplot2::theme_minimal", subtitle = "Arial, probably?") +
+  theme_minimal()
+
+data %>% 
+    select(Pixel.Sum, Piezo.Batch) %>%
+    na.omit() %>% 
+    mutate(Piezo.Batch = as.factor(Piezo.Batch)) %>% 
+    ggplot(aes(Pixel.Sum, fill = Piezo.Batch, colour = Piezo.Batch, alpha = 0.7)) +
+    geom_density()
+
+data %>% 
+    select(Freq.Diff, Piezo.Batch) %>%
+    na.omit() %>% 
+    mutate(Piezo.Batch = as.factor(Piezo.Batch)) %>% 
+    ggplot(aes(Freq.Diff, fill = Piezo.Batch, colour = Piezo.Batch, alpha = 0.7)) +
+    geom_density() + scale_color_fivethirtyeight() +
+  theme_fivethirtyeight()
+```
+
+
+```{r FR_Y vs. Row + Column}
+p1 <- data %>% 
+    select(FR_Y, Row) %>%
+    na.omit() %>% 
+    mutate(Row = as.factor(Row)) %>% 
+    ggplot(aes(FR_Y, Row)) +
+    geom_boxplot()
+
+p2 <- data %>% 
+    select(FR_Y, Column) %>%
+    na.omit() %>% 
+    mutate(Column = as.factor(Column)) %>% 
+    ggplot(aes(FR_Y, Column)) +
+    geom_boxplot()
+
+p3 <- data %>% 
+    select(Freq.Diff, Row) %>%
+    na.omit() %>% 
+    mutate(Row = as.factor(Row)) %>% 
+    ggplot(aes(Freq.Diff, Row)) +
+    geom_boxplot()
+
+p4 <- data %>% 
+    select(Freq.Diff, Column) %>%
+    na.omit() %>% 
+    mutate(Column = as.factor(Column)) %>% 
+    ggplot(aes(Freq.Diff, Column)) +
+    geom_boxplot()
+
+p5 <- data %>% 
+    select(Pixel.Sum, Row) %>%
+    na.omit() %>% 
+    mutate(Row = as.factor(Row)) %>% 
+    ggplot(aes(Pixel.Sum, Row)) +
+    geom_boxplot()
+
+p6 <- data %>% 
+    select(Pixel.Sum, Column) %>%
+    na.omit() %>% 
+    mutate(Column = as.factor(Column)) %>% 
+    ggplot(aes(Pixel.Sum, Column)) +
+    geom_boxplot()
+# need attention, column have values from A-J and 1-10
+
+#grid.arrange(p1, p2, nrow = 1)
+p1
+p2
+p3
+p4
+p5
+p6
+
+res.aov <- aov(Pixel.Sum ~ Column, data = data)
+summary(res.aov)
+```
+
+The lower and upper hinges correspond to the first and third quartiles. The upper whisker extends from the hinge to the largest value no further than 1.5 * IQR from the hinge. Data plotted individually are outlier points. 
+"anova"
+
+```{r Feedrate}
+p1 <- data %>% 
+    select(FR_Y, Feedrate) %>%
+    na.omit() %>% 
+    mutate(Feedrate = as.factor(Feedrate)) %>% 
+    filter(FR_Y < 10000) %>% # filter out outliers in FR_Y
+    ggplot(aes(FR_Y, fill = Feedrate)) +
+    geom_density()
+
+p2 <- data %>% 
+    select(Freq.Diff, Feedrate) %>% 
+    na.omit() %>% 
+    mutate(Feedrate = as.factor(Feedrate)) %>% 
+    ggplot(aes(Freq.Diff, fill = Feedrate)) + 
+    geom_density()
+
+p3 <- data %>% 
+    select(Pixel.Sum, Feedrate) %>% 
+    na.omit() %>% 
+    mutate(Feedrate = as.factor(Feedrate)) %>% 
+    ggplot(aes(Pixel.Sum, fill = Feedrate)) + 
+    geom_density()
+p1
+p2
+p3
+#grid.arrange(p1, p2, p3, nrow = 1)
+```
+23/110 seems to give better FR_Y value, and not difference between peak separations.
+
+```{r Batch File}
+batch_num <- c(readr::parse_number(data$Batch.File)) %>% 
+    as.data.frame()
+colnames(batch_num) <- c("Batch.Num")
+data_batch <- cbind(data, batch_num)
+
+data_batch %>% 
+    select(FR_Y, Batch.Num) %>%
+    na.omit() %>% 
+    ggplot(aes(Batch.Num, FR_Y)) +
+    geom_bin_2d(bins = 5) +
+    geom_quantile(colour = "orange", size = 2)
+
+data_batch %>% 
+    select(Freq.Diff, Batch.Num) %>%
+    na.omit() %>% 
+    ggplot(aes(Batch.Num, Freq.Diff)) +
+    geom_bin_2d(bins = 5) +
+    geom_quantile(colour = "orange", size = 2)
+
+data_batch %>% 
+    select(Pixel.Sum, Batch.Num) %>%
+    na.omit() %>% 
+    ggplot(aes(Batch.Num, Pixel.Sum)) +
+    geom_bin_2d(bins = 15) +
+    geom_quantile(colour = "orange", size = 2)
+```
+
+Overtime peak frequency difference did not change much. Pixel Sum and Pixel Sum improved consistantly. 
